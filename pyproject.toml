@@ -24,14 +24,14 @@ dependencies = [
     "audioop-lts~=0.2.1; python_version>='3.13'",
     "loguru~=0.7.3",
     "Markdown~=3.7",
-    "numpy~=1.26.4",
+    "numpy>=1.26.4",
     "Pillow~=11.1.0",
     "protobuf~=5.29.3",
-    "pydantic~=2.10.6",
+    "pydantic>=2.10.6",
     "pyloudnorm~=0.1.1",
     "resampy~=0.4.3",
     "soxr~=0.5.0",
-    "openai~=1.70.0"
+    "openai>=1.70.0"
 ]
 
 [project.urls]
@@ -49,11 +49,11 @@ cerebras = []
 deepseek = []
 daily = [ "daily-python~=0.19.3" ]
 deepgram = [ "deepgram-sdk~=4.1.0" ]
-elevenlabs = [ "websockets~=13.1" ]
+elevenlabs = [ "websockets>=13.1" ]
 fal = [ "fal-client~=0.5.9" ]
 fireworks = []
-fish = [ "ormsgpack~=1.7.0", "websockets~=13.1" ]
-gladia = [ "websockets~=13.1" ]
+fish = [ "ormsgpack~=1.7.0", "websockets>=13.1" ]
+gladia = [ "websockets>=13.1" ]
 google = [ "google-cloud-speech~=2.32.0", "google-cloud-texttospeech~=2.26.0", "google-genai~=1.14.0", "websockets~=13.1" ]
 grok = []
 groq = [ "groq~=0.23.0" ]
