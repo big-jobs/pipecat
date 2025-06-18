@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2024, Daily
+# Copyright (c) 2024–2025, Daily
 #
 # SPDX-License-Identifier: BSD 2-Clause License
 #
@@ -9,19 +9,24 @@ import json
 
 from loguru import logger
 
-from pipecat.frames.frames import Frame, LLMMessagesUpdateFrame, LLMSetToolsFrame
-from pipecat.processors.aggregators.openai_llm_context import (
-    OpenAILLMContext,
-    OpenAILLMContextFrame,
+from pipecat.frames.frames import (
+    Frame,
+    FunctionCallResultFrame,
+    InterimTranscriptionFrame,
+    LLMMessagesUpdateFrame,
+    LLMSetToolsFrame,
+    LLMTextFrame,
+    TranscriptionFrame,
 )
+from pipecat.processors.aggregators.openai_llm_context import OpenAILLMContext
 from pipecat.processors.frame_processor import FrameDirection
-from pipecat.services.openai import (
+from pipecat.services.openai.llm import (
     OpenAIAssistantContextAggregator,
     OpenAIUserContextAggregator,
 )
 
 from . import events
-from .frames import RealtimeMessagesUpdateFrame, RealtimeFunctionCallResultFrame
+from .frames import RealtimeFunctionCallResultFrame, RealtimeMessagesUpdateFrame
 
 
 class OpenAIRealtimeLLMContext(OpenAILLMContext):
@@ -134,15 +139,6 @@ class OpenAIRealtimeLLMContext(OpenAILLMContext):
         }
         self.add_message(message)
 
-    def add_assistant_content_item_as_message(self, item):
-        message = {"role": "assistant", "content": []}
-        for content in item.content:
-            if content.type == "audio":
-                message["content"].append({"type": "text", "text": content.transcript})
-            else:
-                logger.error(f"Unhandled content type in assistant item: {content.type} - {item}")
-        self.add_message(message)
-
 
 class OpenAIRealtimeUserContextAggregator(OpenAIUserContextAggregator):
     async def process_frame(
@@ -160,7 +156,7 @@ class OpenAIRealtimeUserContextAggregator(OpenAIUserContextAggregator):
         if isinstance(frame, LLMSetToolsFrame):
             await self.push_frame(frame, direction)
 
-    async def _push_aggregation(self):
+    async def push_aggregation(self):
         # for the moment, ignore all user input coming into the pipeline.
         # todo: think about whether/how to fix this to allow for text input from
         #       upstream (transport/transcription, or other sources)
@@ -168,56 +164,22 @@ class OpenAIRealtimeUserContextAggregator(OpenAIUserContextAggregator):
 
 
 class OpenAIRealtimeAssistantContextAggregator(OpenAIAssistantContextAggregator):
-    async def _push_aggregation(self):
-        # the only thing we implement here is function calling. in all other cases, messages
-        # are added to the context when we receive openai realtime api events
-        if not self._function_call_result:
-            return
+    # The LLMAssistantContextAggregator uses TextFrames to aggregate the LLM output,
+    # but the OpenAIRealtimeLLMService pushes LLMTextFrames and TTSTextFrames. We
+    # need to override this proces_frame for LLMTextFrame, so that only the TTSTextFrames
+    # are process. This ensures that the context gets only one set of messages.
+    # OpenAIRealtimeLLMService also pushes TranscriptionFrames and InterimTranscriptionFrames,
+    # so we need to ignore pushing those as well, as they're also TextFrames.
+    async def process_frame(self, frame: Frame, direction: FrameDirection):
+        if not isinstance(frame, (LLMTextFrame, TranscriptionFrame, InterimTranscriptionFrame)):
+            await super().process_frame(frame, direction)
 
-        self._reset()
-        try:
-            run_llm = True
-            frame = self._function_call_result
-            self._function_call_result = None
-            if frame.result:
-                # The "tool_call" message from the LLM that triggered the function call
-                self._context.add_message(
-                    {
-                        "role": "assistant",
-                        "tool_calls": [
-                            {
-                                "id": frame.tool_call_id,
-                                "function": {
-                                    "name": frame.function_name,
-                                    "arguments": json.dumps(frame.arguments),
-                                },
-                                "type": "function",
-                            }
-                        ],
-                    }
-                )
-                # The result of the function call. Need to add this both to our context here and to
-                # the openai realtime api context.
-                result_message = {
-                    "role": "tool",
-                    "content": json.dumps(frame.result),
-                    "tool_call_id": frame.tool_call_id,
-                }
+    async def handle_function_call_result(self, frame: FunctionCallResultFrame):
+        await super().handle_function_call_result(frame)
 
-                self._context.add_message(result_message)
-                # The standard function callback code path pushes the FunctionCallResultFrame from the llm itself,
-                # so we didn't have a chance to add the result to the openai realtime api context. Let's push a
-                # special frame to do that.
-                await self._user_context_aggregator.push_frame(
-                    RealtimeFunctionCallResultFrame(result_frame=frame)
-                )
-                run_llm = frame.run_llm
-
-            if run_llm:
-                await self._user_context_aggregator.push_context_frame()
-
-            frame = OpenAILLMContextFrame(self._context)
-            await self.push_frame(frame)
-
-        except Exception as e:
-            logger.error(f"Error processing frame: {e}")
+        # The standard function callback code path pushes the FunctionCallResultFrame from the llm itself,
+        # so we didn't have a chance to add the result to the openai realtime api context. Let's push a
+        # special frame to do that.
+        await self.push_frame(
+            RealtimeFunctionCallResultFrame(result_frame=frame), FrameDirection.UPSTREAM
+        )

@@ -1,10 +1,12 @@
 #
-# Copyright (c) 2024, Daily
+# Copyright (c) 2024–2025, Daily
 #
 # SPDX-License-Identifier: BSD 2-Clause License
 #
 
-from typing import Union
+from typing import Optional, Union
+
+from loguru import logger
 
 from pipecat.frames.frames import (
     Frame,
@@ -14,8 +16,6 @@ from pipecat.frames.frames import (
     TextFrame,
 )
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
-
-from loguru import logger
 
 try:
     from langchain_core.messages import AIMessageChunk
@@ -30,7 +30,7 @@ class LangchainProcessor(FrameProcessor):
         super().__init__()
         self._chain = chain
         self._transcript_key = transcript_key
-        self._participant_id: str | None = None
+        self._participant_id: Optional[str] = None
 
     def set_participant_id(self, participant_id: str):
         self._participant_id = participant_id

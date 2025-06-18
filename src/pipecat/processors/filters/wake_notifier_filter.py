@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2024, Daily
+# Copyright (c) 2024–2025, Daily
 #
 # SPDX-License-Identifier: BSD 2-Clause License
 #
@@ -22,7 +22,7 @@ class WakeNotifierFilter(FrameProcessor):
         self,
         notifier: BaseNotifier,
         *,
-        types: Tuple[Type[Frame]],
+        types: Tuple[Type[Frame], ...],
         filter: Callable[[Frame], Awaitable[bool]],
         **kwargs,
     ):

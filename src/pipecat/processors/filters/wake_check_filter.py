@@ -1,23 +1,22 @@
 #
-# Copyright (c) 2024, Daily
+# Copyright (c) 2024–2025, Daily
 #
 # SPDX-License-Identifier: BSD 2-Clause License
 #
 
 import re
 import time
-
 from enum import Enum
+from typing import List
+
+from loguru import logger
 
 from pipecat.frames.frames import ErrorFrame, Frame, TranscriptionFrame
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 
-from loguru import logger
-
 
 class WakeCheckFilter(FrameProcessor):
-    """
-    This filter looks for wake phrases in the transcription frames and only passes through frames
+    """This filter looks for wake phrases in the transcription frames and only passes through frames
     after a wake phrase has been detected. It also has a keepalive timeout to allow for a brief
     period of continued conversation after a wake phrase has been detected.
     """
@@ -33,7 +32,7 @@ class WakeCheckFilter(FrameProcessor):
             self.wake_timer = 0.0
             self.accumulator = ""
 
-    def __init__(self, wake_phrases: list[str], keepalive_timeout: float = 3):
+    def __init__(self, wake_phrases: List[str], keepalive_timeout: float = 3):
         super().__init__()
         self._participant_states = {}
         self._keepalive_timeout = keepalive_timeout

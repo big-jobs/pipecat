@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2024, Daily
+# Copyright (c) 2024–2025, Daily
 #
 # SPDX-License-Identifier: BSD 2-Clause License
 #
@@ -26,19 +26,19 @@ class MarkdownTextFilter(BaseTextFilter):
         filter_code: Optional[bool] = False
         filter_tables: Optional[bool] = False
 
-    def __init__(self, params: InputParams = InputParams(), **kwargs):
+    def __init__(self, params: Optional[InputParams] = None, **kwargs):
         super().__init__(**kwargs)
-        self._settings = params
+        self._settings = params or MarkdownTextFilter.InputParams()
         self._in_code_block = False
         self._in_table = False
         self._interrupted = False
 
-    def update_settings(self, settings: Mapping[str, Any]):
+    async def update_settings(self, settings: Mapping[str, Any]):
         for key, value in settings.items():
             if hasattr(self._settings, key):
                 setattr(self._settings, key, value)
 
-    def filter(self, text: str) -> str:
+    async def filter(self, text: str) -> str:
         if self._settings.enable_text_filter:
             # Remove newlines and replace with a space only when there's no text before or after
             filtered_text = re.sub(r"^\s*\n", " ", text, flags=re.MULTILINE)
@@ -100,16 +100,19 @@ class MarkdownTextFilter(BaseTextFilter):
             # Restore leading and trailing spaces
             filtered_text = re.sub("§", " ", filtered_text)
 
+            ## Make links more readable
+            filtered_text = re.sub(r"https?://", "", filtered_text)
+
             return filtered_text
         else:
             return text
 
-    def handle_interruption(self):
+    async def handle_interruption(self):
         self._interrupted = True
         self._in_code_block = False
         self._in_table = False
 
-    def reset_interruption(self):
+    async def reset_interruption(self):
         self._interrupted = False
 
     #
@@ -117,8 +120,7 @@ class MarkdownTextFilter(BaseTextFilter):
     #
 
     def _remove_code_blocks(self, text: str) -> str:
-        """
-        Main method to remove code blocks from the input text.
+        """Main method to remove code blocks from the input text.
         Handles interruptions and delegates to specific methods based on the current state.
         """
         if self._interrupted:
@@ -135,8 +137,7 @@ class MarkdownTextFilter(BaseTextFilter):
         return self._handle_not_in_code_block(match, text, code_block_pattern)
 
     def _handle_in_code_block(self, match, text):
-        """
-        Handle text when we're currently inside a code block.
+        """Handle text when we're currently inside a code block.
         If we find the end of the block, return text after it. Otherwise, skip the content.
         """
         if match:
@@ -146,8 +147,7 @@ class MarkdownTextFilter(BaseTextFilter):
         return ""  # Skip content inside code block
 
     def _handle_not_in_code_block(self, match, text, code_block_pattern):
-        """
-        Handle text when we're not currently inside a code block.
+        """Handle text when we're not currently inside a code block.
         Delegate to specific methods based on whether we find a code block delimiter.
         """
         if not match:
@@ -159,16 +159,14 @@ class MarkdownTextFilter(BaseTextFilter):
         return self._handle_code_block_within_text(text, code_block_pattern)
 
     def _handle_start_of_code_block(self, text, start_index):
-        """
-        Handle the case where we find the start of a code block.
+        """Handle the case where we find the start of a code block.
         Return any text before the code block and set the state to inside a code block.
         """
         self._in_code_block = True
         return text[:start_index].strip()
 
     def _handle_code_block_within_text(self, text, code_block_pattern):
-        """
-        Handle the case where we find a code block within the text.
+        """Handle the case where we find a code block within the text.
         If it's a complete code block, remove it and return surrounding text.
         If it's the start of a code block, return text before it and set state.
         """
@@ -182,8 +180,7 @@ class MarkdownTextFilter(BaseTextFilter):
     # Filter tables
     #
     def remove_tables(self, text: str) -> str:
-        """
-        Remove tables from the input text, handling cases where
+        """Remove tables from the input text, handling cases where
         both start and end tags are in the same input.
         """
         if self._interrupted:

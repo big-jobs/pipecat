@@ -1,23 +1,31 @@
 #
-# Copyright (c) 2024, Daily
+# Copyright (c) 2024–2025, Daily
 #
 # SPDX-License-Identifier: BSD 2-Clause License
 #
 
 import dataclasses
+import json
+
+from loguru import logger
 
 import pipecat.frames.protobufs.frames_pb2 as frame_protos
-
 from pipecat.frames.frames import (
     Frame,
     InputAudioRawFrame,
     OutputAudioRawFrame,
     TextFrame,
     TranscriptionFrame,
+    TransportMessageFrame,
+    TransportMessageUrgentFrame,
 )
 from pipecat.serializers.base_serializer import FrameSerializer, FrameSerializerType
 
-from loguru import logger
+
+# Data class for converting transport messages into Protobuf format.
+@dataclasses.dataclass
+class MessageFrame:
+    data: str
 
 
 class ProtobufFrameSerializer(FrameSerializer):
@@ -25,6 +33,7 @@ class ProtobufFrameSerializer(FrameSerializer):
         TextFrame: "text",
         OutputAudioRawFrame: "audio",
         TranscriptionFrame: "transcription",
+        MessageFrame: "message",
     }
     SERIALIZABLE_FIELDS = {v: k for k, v in SERIALIZABLE_TYPES.items()}
 
@@ -32,6 +41,7 @@ class ProtobufFrameSerializer(FrameSerializer):
         TextFrame: "text",
         InputAudioRawFrame: "audio",
         TranscriptionFrame: "transcription",
+        MessageFrame: "message",
     }
     DESERIALIZABLE_FIELDS = {v: k for k, v in DESERIALIZABLE_TYPES.items()}
 
@@ -42,7 +52,13 @@ class ProtobufFrameSerializer(FrameSerializer):
     def type(self) -> FrameSerializerType:
         return FrameSerializerType.BINARY
 
-    def serialize(self, frame: Frame) -> str | bytes | None:
+    async def serialize(self, frame: Frame) -> str | bytes | None:
+        # Wrapping this messages as a JSONFrame to send
+        if isinstance(frame, (TransportMessageFrame, TransportMessageUrgentFrame)):
+            frame = MessageFrame(
+                data=json.dumps(frame.message),
+            )
+
         proto_frame = frame_protos.Frame()
         if type(frame) not in self.SERIALIZABLE_TYPES:
             logger.warning(f"Frame type {type(frame)} is not serializable")
@@ -58,25 +74,7 @@ class ProtobufFrameSerializer(FrameSerializer):
 
         return proto_frame.SerializeToString()
 
-    def deserialize(self, data: str | bytes) -> Frame | None:
-        """Returns a Frame object from a Frame protobuf. Used to convert frames
-        passed over the wire as protobufs to Frame objects used in pipelines
-        and frame processors.
-
-        >>> serializer = ProtobufFrameSerializer()
-        >>> serializer.deserialize(
-        ...     serializer.serialize(OutputAudioFrame(data=b'1234567890')))
-        InputAudioFrame(data=b'1234567890')
-
-        >>> serializer.deserialize(
-        ...     serializer.serialize(TextFrame(text='hello world')))
-        TextFrame(text='hello world')
-
-        >>> serializer.deserialize(serializer.serialize(TranscriptionFrame(
-        ...     text="Hello there!", participantId="123", timestamp="2021-01-01")))
-        TranscriptionFrame(text='Hello there!', participantId='123', timestamp='2021-01-01')
-        """
-
+    async def deserialize(self, data: str | bytes) -> Frame | None:
         proto = frame_protos.Frame.FromString(data)
         which = proto.WhichOneof("frame")
         if which not in self.DESERIALIZABLE_FIELDS:
@@ -93,22 +91,32 @@ class ProtobufFrameSerializer(FrameSerializer):
         id = getattr(args, "id", None)
         name = getattr(args, "name", None)
         pts = getattr(args, "pts", None)
-        if not id and "id" in args_dict:
+        if "id" in args_dict:
             del args_dict["id"]
-        if not name and "name" in args_dict:
+        if "name" in args_dict:
             del args_dict["name"]
-        if not pts and "pts" in args_dict:
+        if "pts" in args_dict:
             del args_dict["pts"]
 
-        # Create the instance
-        instance = class_name(**args_dict)
+        # Special handling for MessageFrame -> TransportMessageUrgentFrame
+        if class_name == MessageFrame:
+            try:
+                msg = json.loads(args_dict["data"])
+                instance = TransportMessageUrgentFrame(message=msg)
+                logger.debug(f"ProtobufFrameSerializer: Transport message {instance}")
+            except Exception as e:
+                logger.error(f"Error parsing MessageFrame data: {e}")
+                return None
+        else:
+            # Normal deserialization, create the instance
+            instance = class_name(**args_dict)
 
         # Set special fields
         if id:
-            setattr(instance, "id", getattr(args, "id", None))
+            setattr(instance, "id", id)
         if name:
-            setattr(instance, "name", getattr(args, "name", None))
+            setattr(instance, "name", name)
         if pts:
-            setattr(instance, "pts", getattr(args, "pts", None))
+            setattr(instance, "pts", pts)
 
         return instance

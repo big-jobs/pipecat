@@ -1,22 +1,25 @@
+#
+# Copyright (c) 2024–2025, Daily
+#
+# SPDX-License-Identifier: BSD 2-Clause License
+#
+
 import argparse
 import asyncio
 import os
 import sys
 
 import aiohttp
+from dotenv import load_dotenv
+from livekit import api
+from loguru import logger
 
 from pipecat.frames.frames import TextFrame
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineTask
-from pipecat.services.cartesia import CartesiaTTSService
+from pipecat.services.cartesia.tts import CartesiaTTSService
 from pipecat.transports.services.livekit import LiveKitParams, LiveKitTransport
-
-from livekit import api
-
-from loguru import logger
-
-from dotenv import load_dotenv
 
 load_dotenv(override=True)
 
@@ -74,37 +77,36 @@ async def configure_livekit():
 
 
 async def main():
-    async with aiohttp.ClientSession() as session:
-        (url, token, room_name) = await configure_livekit()
+    (url, token, room_name) = await configure_livekit()
 
-        transport = LiveKitTransport(
-            url=url,
-            token=token,
-            room_name=room_name,
-            params=LiveKitParams(audio_out_enabled=True),
-        )
+    transport = LiveKitTransport(
+        url=url,
+        token=token,
+        room_name=room_name,
+        params=LiveKitParams(audio_out_enabled=True),
+    )
 
-        tts = CartesiaTTSService(
-            api_key=os.getenv("CARTESIA_API_KEY"),
-            voice_id="79a125e8-cd45-4c13-8a67-188112f4dd22",  # British Lady
-        )
+    tts = CartesiaTTSService(
+        api_key=os.getenv("CARTESIA_API_KEY"),
+        voice_id="71a7ad14-091c-4e8e-a314-022ece01c121",  # British Reading Lady
+    )
 
-        runner = PipelineRunner()
+    runner = PipelineRunner()
 
-        task = PipelineTask(Pipeline([tts, transport.output()]))
+    task = PipelineTask(Pipeline([tts, transport.output()]))
 
-        # Register an event handler so we can play the audio when the
-        # participant joins.
-        @transport.event_handler("on_first_participant_joined")
-        async def on_first_participant_joined(transport, participant_id):
-            await asyncio.sleep(1)
-            await task.queue_frame(
-                TextFrame(
-                    "Hello there! How are you doing today? Would you like to talk about the weather?"
-                )
+    # Register an event handler so we can play the audio when the
+    # participant joins.
+    @transport.event_handler("on_first_participant_joined")
+    async def on_first_participant_joined(transport, participant_id):
+        await asyncio.sleep(1)
+        await task.queue_frame(
+            TextFrame(
+                "Hello there! How are you doing today? Would you like to talk about the weather?"
             )
+        )
 
-        await runner.run(task)
+    await runner.run(task)
 
 
 if __name__ == "__main__":

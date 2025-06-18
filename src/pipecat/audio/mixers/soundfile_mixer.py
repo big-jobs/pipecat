@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2024, Daily
+# Copyright (c) 2024–2025, Daily
 #
 # SPDX-License-Identifier: BSD 2-Clause License
 #
@@ -38,9 +38,11 @@ class SoundfileMixer(BaseAudioMixer):
 
     def __init__(
         self,
+        *,
         sound_files: Mapping[str, str],
         default_sound: str,
         volume: float = 0.4,
+        mixing: bool = True,
         loop: bool = True,
         **kwargs,
     ):
@@ -52,7 +54,7 @@ class SoundfileMixer(BaseAudioMixer):
         self._sound_pos = 0
         self._sounds: Dict[str, Any] = {}
         self._current_sound = default_sound
-        self._mixing = True
+        self._mixing = mixing
         self._loop = loop
 
     async def start(self, sample_rate: int):

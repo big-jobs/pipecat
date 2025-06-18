@@ -1,20 +1,19 @@
-from typing import Tuple
-import aiohttp
 import asyncio
 import logging
 import os
-from pipecat.processors.aggregators import SentenceAggregator
-from pipecat.pipeline.pipeline import Pipeline
+from typing import Tuple
 
-from pipecat.transports.services.daily import DailyTransport
+import aiohttp
+from daily_runner import configure
+from dotenv import load_dotenv
+
+from pipecat.frames.frames import AudioFrame, EndFrame, ImageFrame, LLMMessagesFrame, TextFrame
+from pipecat.pipeline.pipeline import Pipeline
+from pipecat.processors.aggregators import SentenceAggregator
 from pipecat.services.azure import AzureLLMService, AzureTTSService
 from pipecat.services.elevenlabs import ElevenLabsTTSService
 from pipecat.services.fal import FalImageGenService
-from pipecat.frames.frames import AudioFrame, EndFrame, ImageFrame, LLMMessagesFrame, TextFrame
-
-from runner import configure
-
-from dotenv import load_dotenv
+from pipecat.transports.services.daily import DailyTransport
 
 load_dotenv(override=True)
 
@@ -49,7 +48,6 @@ async def main():
             region=os.getenv("AZURE_SPEECH_REGION"),
         )
         tts2 = ElevenLabsTTSService(
-            aiohttp_session=session,
             api_key=os.getenv("ELEVENLABS_API_KEY"),
             voice_id="jBpfuIE2acCO8z3wKNLl",
         )
@@ -74,7 +72,8 @@ async def main():
 
         async def get_text_and_audio(messages) -> Tuple[str, bytearray]:
             """This function streams text from the LLM and uses the TTS service to convert
-            that text to speech as it's received."""
+            that text to speech as it's received.
+            """
             source_queue = asyncio.Queue()
             sink_queue = asyncio.Queue()
             sentence_aggregator = SentenceAggregator()

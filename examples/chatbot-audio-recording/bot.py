@@ -1,31 +1,30 @@
 #
-# Copyright (c) 2024, Daily
+# Copyright (c) 2024–2025, Daily
 #
 # SPDX-License-Identifier: BSD 2-Clause License
 #
 
-import aiofiles
 import asyncio
+import datetime
 import io
 import os
 import sys
-
-import aiohttp
-import datetime
 import wave
+
+import aiofiles
+import aiohttp
 from dotenv import load_dotenv
 from loguru import logger
 from runner import configure
 
 from pipecat.audio.vad.silero import SileroVADAnalyzer
-from pipecat.frames.frames import EndFrame, LLMMessagesFrame
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineParams, PipelineTask
 from pipecat.processors.aggregators.openai_llm_context import OpenAILLMContext
 from pipecat.processors.audio.audio_buffer_processor import AudioBufferProcessor
-from pipecat.services.elevenlabs import ElevenLabsTTSService
-from pipecat.services.openai import OpenAILLMService
+from pipecat.services.elevenlabs.tts import ElevenLabsTTSService
+from pipecat.services.openai.llm import OpenAILLMService
 from pipecat.transports.services.daily import DailyParams, DailyTransport
 
 load_dotenv(override=True)
@@ -33,10 +32,16 @@ load_dotenv(override=True)
 logger.remove(0)
 logger.add(sys.stderr, level="DEBUG")
 
+# Create the recordings directory if it doesn't exist
+os.makedirs("recordings", exist_ok=True)
 
-async def save_audio(audio: bytes, sample_rate: int, num_channels: int):
+
+async def save_audio(audio: bytes, sample_rate: int, num_channels: int, name: str):
     if len(audio) > 0:
-        filename = f"conversation_recording{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.wav"
+        filename = os.path.join(
+            "recordings",
+            f"{name}_conversation_recording{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.wav",
+        )
         with io.BytesIO() as buffer:
             with wave.open(buffer, "wb") as wf:
                 wf.setsampwidth(2)
@@ -61,9 +66,7 @@ async def main():
             DailyParams(
                 audio_out_enabled=True,
                 audio_in_enabled=True,
-                camera_out_enabled=False,
-                vad_enabled=True,
-                vad_audio_passthrough=True,
+                video_out_enabled=False,
                 vad_analyzer=SileroVADAnalyzer(),
                 transcription_enabled=True,
                 #
@@ -83,7 +86,6 @@ async def main():
             # English
             #
             voice_id="cgSgspJ2msm6clMCkdW9",
-            aiohttp_session=session,
             #
             # Spanish
             #
@@ -91,7 +93,7 @@ async def main():
             # voice_id="gD1IexrzCvsXPHUuT0s3",
         )
 
-        llm = OpenAILLMService(api_key=os.getenv("OPENAI_API_KEY"), model="gpt-4o")
+        llm = OpenAILLMService(api_key=os.getenv("OPENAI_API_KEY"))
 
         messages = [
             {
@@ -110,8 +112,9 @@ async def main():
         context = OpenAILLMContext(messages)
         context_aggregator = llm.create_context_aggregator(context)
 
-        # Save audio every 10 seconds.
-        audiobuffer = AudioBufferProcessor(buffer_size=480000)
+        # NOTE: Watch out! This will save all the conversation in memory. You
+        # can pass `buffer_size` to get periodic callbacks.
+        audiobuffer = AudioBufferProcessor(enable_turn_audio=True)
 
         pipeline = Pipeline(
             [
@@ -125,21 +128,37 @@ async def main():
             ]
         )
 
-        task = PipelineTask(pipeline, PipelineParams(allow_interruptions=True))
+        task = PipelineTask(
+            pipeline,
+            params=PipelineParams(
+                audio_in_sample_rate=16000,
+                audio_out_sample_rate=16000,
+                allow_interruptions=True,
+            ),
+        )
 
         @audiobuffer.event_handler("on_audio_data")
         async def on_audio_data(buffer, audio, sample_rate, num_channels):
-            await save_audio(audio, sample_rate, num_channels)
+            await save_audio(audio, sample_rate, num_channels, "full")
+
+        @audiobuffer.event_handler("on_user_turn_audio_data")
+        async def on_user_turn_audio_data(buffer, audio, sample_rate, num_channels):
+            await save_audio(audio, sample_rate, num_channels, "user")
+
+        @audiobuffer.event_handler("on_bot_turn_audio_data")
+        async def on_bot_turn_audio_data(buffer, audio, sample_rate, num_channels):
+            await save_audio(audio, sample_rate, num_channels, "bot")
 
         @transport.event_handler("on_first_participant_joined")
         async def on_first_participant_joined(transport, participant):
+            await audiobuffer.start_recording()
             await transport.capture_participant_transcription(participant["id"])
-            await task.queue_frames([LLMMessagesFrame(messages)])
+            await task.queue_frames([context_aggregator.user().get_context_frame()])
 
         @transport.event_handler("on_participant_left")
         async def on_participant_left(transport, participant, reason):
             print(f"Participant left: {participant}")
-            await task.queue_frame(EndFrame())
+            await task.cancel()
 
         runner = PipelineRunner()
 

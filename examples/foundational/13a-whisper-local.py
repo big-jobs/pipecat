@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2024, Daily
+# Copyright (c) 2024–2025, Daily
 #
 # SPDX-License-Identifier: BSD 2-Clause License
 #
@@ -7,18 +7,17 @@
 import asyncio
 import sys
 
+from dotenv import load_dotenv
+from loguru import logger
+
+from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.frames.frames import Frame, TranscriptionFrame
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineTask
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
-from pipecat.services.whisper import WhisperSTTService
-from pipecat.transports.base_transport import TransportParams
-from pipecat.transports.local.audio import LocalAudioTransport
-
-from loguru import logger
-
-from dotenv import load_dotenv
+from pipecat.services.whisper.stt import WhisperSTTService
+from pipecat.transports.local.audio import LocalAudioTransport, LocalAudioTransportParams
 
 load_dotenv(override=True)
 
@@ -35,7 +34,12 @@ class TranscriptionLogger(FrameProcessor):
 
 
 async def main():
-    transport = LocalAudioTransport(TransportParams(audio_in_enabled=True))
+    transport = LocalAudioTransport(
+        LocalAudioTransportParams(
+            audio_in_enabled=True,
+            vad_analyzer=SileroVADAnalyzer(),
+        )
+    )
 
     stt = WhisperSTTService()
 
@@ -45,7 +49,7 @@ async def main():
 
     task = PipelineTask(pipeline)
 
-    runner = PipelineRunner()
+    runner = PipelineRunner(handle_sigint=False if sys.platform == "win32" else True)
 
     await runner.run(task)
 

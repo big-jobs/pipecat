@@ -1,4 +1,4 @@
-[![Try](https://img.shields.io/badge/try_it-here-blue)](https://storytelling-chatbot.fly.dev)
+[![Try](https://img.shields.io/badge/try_it-here-blue)](https://gemini-storybot.vercel.app/)
 
 # Storytelling Chatbot
 
@@ -7,8 +7,7 @@
 This example shows how to build a voice-driven interactive storytelling experience.
 It periodically prompts the user for input for a 'choose your own adventure' style experience.
 
-We add visual elements to the story by generating images at lightning speed using Fal.
-
+We use Gemini 2.0 for creating the story and image prompts, and we add visual elements to the story by generating images using Google's Imagen.
 
 ---
 
@@ -18,61 +17,92 @@ We add visual elements to the story by generating images at lightning speed usin
 
 Transcribes inbound participant voice media to text.
 
-**OpenAI (GPT4) - LLM**
+**Google Gemini 2.0 - LLM**
 
-Our creative writer LLM. You can see the context used to prompt it [here](src/prompts.py)
+Our creative writer LLM. You can see the context used to prompt it [here](server/prompts.py)
 
 **ElevenLabs - Text-to-Speech**
 
 Converts and streams the LLM response from text to audio
 
-**Fal.ai - Image Generation**
+**Google Imagen - Image Generation**
 
-Adds pictures to our story (really fast!) Prompting is quite key for style consistency, so we task the LLM to turn each story page into a short image prompt.
+Adds pictures to our story. Prompting is quite key for style consistency, so we task the LLM to turn each story page into a short image prompt.
 
 ---
 
 ## Setup
 
-**Install requirements**
+### Client
 
-```shell
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-```
+1. Navigate to the client directory:
 
-**Create environment file and set variables:**
+   ```shell
+   cd client
+   ```
 
-```shell
-mv env.example .env
-```
+2. Install dependencies:
 
-When deploying to production, to ensure only this app can spawn a new bot, set your `ENV` to `production`
+   ```shell
+   npm install
+   ```
 
-**Build the frontend:**
+3. Build the client:
 
-This project uses a custom frontend, which needs to built. Note: this is done automatically as part of the Docker deployment.
+   ```shell
+   npm run build
+   ```
 
-```shell
-cd frontend/
-npm install
-npm run build
-```
+### Server
 
-The build UI files can be found in `frontend/out`
+1. Navigate to the server directory
 
-## Running it locally
+   ```shell
+   cd ../server
+   ```
 
-Start the API / bot manager:
+2. Set up your virtual environment and install requirements
 
-`python src/bot_runner.py`
+   ```shell
+   python3 -m venv venv
+   source venv/bin/activate
+   pip install -r requirements.txt
+   ```
 
-If you'd like to run a custom domain or port:
+3. Create environment file and set variables
 
-`python src/bot_runner.py --host somehost --p someport`
+   ```shell
+   mv env.example .env
+   ```
 
-➡️ Open the host URL in your browser `http://localhost:7860`
+   You'll need API keys for:
+
+   - DAILY_API_KEY
+   - ELEVENLABS_API_KEY
+   - ELEVENLABS_VOICE_ID
+   - GOOGLE_API_KEY
+
+4. (Optional) Deployment:
+
+   When deploying to production, to ensure only this app can spawn new bot processes, set your `ENV` to `production`
+
+## Run it locally
+
+1. Navigate back to the demo's root directory:
+
+   ```shell
+   cd ..
+   ```
+
+2. Run the application:
+
+   ```shell
+   python server/bot_runner.py --host localhost
+   ```
+
+   You can run with a custom domain or port using: `python server/bot_runner.py --host somehost --p someport`
+
+3. ➡️ Open the host URL in your browser: http://localhost:7860
 
 ---
 

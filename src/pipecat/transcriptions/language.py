@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2024, Daily
+# Copyright (c) 2024–2025, Daily
 #
 # SPDX-License-Identifier: BSD 2-Clause License
 #
@@ -54,6 +54,12 @@ class Language(StrEnum):
     AZ = "az"
     AZ_AZ = "az-AZ"
 
+    # Bashkir
+    BA = "ba"
+
+    # Belarusian
+    BE = "be"
+
     # Bulgarian
     BG = "bg"
     BG_BG = "bg-BG"
@@ -63,6 +69,12 @@ class Language(StrEnum):
     BN_BD = "bn-BD"
     BN_IN = "bn-IN"
 
+    # Tibetan
+    BO = "bo"
+
+    # Breton
+    BR = "br"
+
     # Bosnian
     BS = "bs"
     BS_BA = "bs-BA"
@@ -70,6 +82,10 @@ class Language(StrEnum):
     # Catalan
     CA = "ca"
     CA_ES = "ca-ES"
+
+    # Mandarin Chinese
+    CMN = "cmn"
+    CMN_CN = "cmn-CN"
 
     # Czech
     CS = "cs"
@@ -98,6 +114,7 @@ class Language(StrEnum):
     EN_AU = "en-AU"
     EN_CA = "en-CA"
     EN_GB = "en-GB"
+    EN_GH = "en-GH"
     EN_HK = "en-HK"
     EN_IE = "en-IE"
     EN_IN = "en-IN"
@@ -155,6 +172,9 @@ class Language(StrEnum):
     FIL = "fil"
     FIL_PH = "fil-PH"
 
+    # Faroese
+    FO = "fo"
+
     # French
     FR = "fr"
     FR_BE = "fr-BE"
@@ -166,6 +186,9 @@ class Language(StrEnum):
     GA = "ga"
     GA_IE = "ga-IE"
 
+    # Gaelic
+    GD = "gd"
+
     # Galician
     GL = "gl"
     GL_ES = "gl-ES"
@@ -173,6 +196,12 @@ class Language(StrEnum):
     # Gujarati
     GU = "gu"
     GU_IN = "gu-IN"
+
+    # Hausa
+    HA = "ha"
+
+    # Hawaiian
+    HAW = "haw"
 
     # Hebrew
     HE = "he"
@@ -185,6 +214,9 @@ class Language(StrEnum):
     # Croatian
     HR = "hr"
     HR_HR = "hr-HR"
+
+    # Haitian Creole
+    HT = "ht"
 
     # Hungarian
     HU = "hu"
@@ -205,6 +237,7 @@ class Language(StrEnum):
     # Italian
     IT = "it"
     IT_IT = "it-IT"
+    IT_CH = "it-CH"
 
     # Inuktitut
     IU_CANS = "iu-Cans"
@@ -219,6 +252,7 @@ class Language(StrEnum):
     # Javanese
     JV = "jv"
     JV_ID = "jv-ID"
+    JW = "jw"  # Fal requires for Javanese
 
     # Georgian
     KA = "ka"
@@ -240,6 +274,15 @@ class Language(StrEnum):
     KO = "ko"
     KO_KR = "ko-KR"
 
+    # Latin
+    LA = "la"
+
+    # Luxembourgish
+    LB = "lb"
+
+    # Lingala
+    LN = "ln"
+
     # Lao
     LO = "lo"
     LO_LA = "lo-LA"
@@ -251,6 +294,12 @@ class Language(StrEnum):
     # Latvian
     LV = "lv"
     LV_LV = "lv-LV"
+
+    # Malagasy
+    MG = "mg"
+
+    # Maori
+    MI = "mi"
 
     # Macedonian
     MK = "mk"
@@ -279,11 +328,13 @@ class Language(StrEnum):
     # Burmese
     MY = "my"
     MY_MM = "my-MM"
+    MY_MR = "mymr"
 
     # Norwegian
-    NB = "nb"
+    NB = "nb"  # Norwegian Bokmål
     NB_NO = "nb-NO"
     NO = "no"
+    NN = "nn"  # Norwegian Nynorsk
 
     # Nepali
     NE = "ne"
@@ -293,6 +344,9 @@ class Language(StrEnum):
     NL = "nl"
     NL_BE = "nl-BE"
     NL_NL = "nl-NL"
+
+    # Occitan
+    OC = "oc"
 
     # Odia
     OR = "or"
@@ -323,6 +377,12 @@ class Language(StrEnum):
     RU = "ru"
     RU_RU = "ru-RU"
 
+    # Sanskrit
+    SA = "sa"
+
+    # Sindhi
+    SD = "sd"
+
     # Sinhala
     SI = "si"
     SI_LK = "si-LK"
@@ -334,6 +394,9 @@ class Language(StrEnum):
     # Slovenian
     SL = "sl"
     SL_SI = "sl-SI"
+
+    # Shona
+    SN = "sn"
 
     # Somali
     SO = "so"
@@ -362,9 +425,6 @@ class Language(StrEnum):
     SW_KE = "sw-KE"
     SW_TZ = "sw-TZ"
 
-    # Tagalog
-    TL = "tl"
-
     # Tamil
     TA = "ta"
     TA_IN = "ta-IN"
@@ -376,13 +436,25 @@ class Language(StrEnum):
     TE = "te"
     TE_IN = "te-IN"
 
+    # Tajik
+    TG = "tg"
+
     # Thai
     TH = "th"
     TH_TH = "th-TH"
 
+    # Turkmen
+    TK = "tk"
+
+    # Tagalog
+    TL = "tl"
+
     # Turkish
     TR = "tr"
     TR_TR = "tr-TR"
+
+    # Tatar
+    TT = "tt"
 
     # Ukrainian
     UK = "uk"
@@ -405,6 +477,12 @@ class Language(StrEnum):
     WUU = "wuu"
     WUU_CN = "wuu-CN"
 
+    # Yiddish
+    YI = "yi"
+
+    # Yoruba
+    YO = "yo"
+
     # Yue Chinese
     YUE = "yue"
     YUE_CN = "yue-CN"
@@ -422,7 +500,7 @@ class Language(StrEnum):
     ZH_TW = "zh-TW"
 
     # Xhosa
-    XH = "xh"
+    XH = "xh-ZA"
 
     # Zulu
     ZU = "zu"

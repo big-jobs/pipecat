@@ -1,21 +1,24 @@
 #
-# Copyright (c) 2024, Daily
+# Copyright (c) 2024–2025, Daily
 #
 # SPDX-License-Identifier: BSD 2-Clause License
 #
 
-import aiohttp
-import os
 import argparse
+import os
 import subprocess
-
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request, HTTPException
+import aiohttp
+from dotenv import load_dotenv
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
 
 from pipecat.transports.services.helpers.daily_rest import DailyRESTHelper, DailyRoomParams
+
+# Load environment variables from .env file
+load_dotenv(override=True)
 
 MAX_BOTS_PER_ROOM = 1
 

@@ -107,3 +107,9 @@ The server will start on port 8765. Keep this running while you test with Twilio
 ## Usage
 
 To start a call, simply make a call to your configured Twilio phone number. The webhook URL will direct the call to your FastAPI application, which will handle it accordingly.
+
+## Testing
+
+It is also possible to test the server without making phone calls by using one of these clients.
+- [python](client/python/README.md): This Python client enables automated testing of the server via WebSocket without the need to make actual phone calls. 
+- [typescript](client/typescript/README.md): This typescript client enables manual testing of the server via WebSocket without the need to make actual phone calls.

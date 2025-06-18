@@ -1,117 +1,370 @@
+#
+# Copyright (c) 2024-2025 Daily
+#
+# SPDX-License-Identifier: BSD 2-Clause License
+#
+
 import asyncio
+import time
 import unittest
-from unittest.mock import Mock
 
-from pipecat.processors.aggregators.sentence import SentenceAggregator
-from pipecat.processors.text_transformer import StatelessTextTransformer
-from pipecat.processors.frame_processor import FrameProcessor
-from pipecat.frames.frames import EndFrame, TextFrame
-
+from pipecat.frames.frames import EndFrame, HeartbeatFrame, StartFrame, StopFrame, TextFrame
+from pipecat.observers.base_observer import BaseObserver, FramePushed
+from pipecat.pipeline.parallel_pipeline import ParallelPipeline
 from pipecat.pipeline.pipeline import Pipeline
+from pipecat.pipeline.task import PipelineParams, PipelineTask
+from pipecat.processors.filters.identity_filter import IdentityFilter
+from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
+from pipecat.tests.utils import HeartbeatsObserver, run_test
 
 
-class TestDailyPipeline(unittest.IsolatedAsyncioTestCase):
-    @unittest.skip("FIXME: This test is failing")
-    async def test_pipeline_simple(self):
-        aggregator = SentenceAggregator()
+class TestPipeline(unittest.IsolatedAsyncioTestCase):
+    async def test_pipeline_single(self):
+        pipeline = Pipeline([IdentityFilter()])
 
-        outgoing_queue = asyncio.Queue()
-        incoming_queue = asyncio.Queue()
-        pipeline = Pipeline([aggregator], incoming_queue, outgoing_queue)
-
-        await incoming_queue.put(TextFrame("Hello, "))
-        await incoming_queue.put(TextFrame("world."))
-        await incoming_queue.put(EndFrame())
-
-        await pipeline.run_pipeline()
-
-        self.assertEqual(await outgoing_queue.get(), TextFrame("Hello, world."))
-        self.assertIsInstance(await outgoing_queue.get(), EndFrame)
-
-    @unittest.skip("FIXME: This test is failing")
-    async def test_pipeline_multiple_stages(self):
-        sentence_aggregator = SentenceAggregator()
-        to_upper = StatelessTextTransformer(lambda x: x.upper())
-        add_space = StatelessTextTransformer(lambda x: x + " ")
-
-        outgoing_queue = asyncio.Queue()
-        incoming_queue = asyncio.Queue()
-        pipeline = Pipeline(
-            [add_space, sentence_aggregator, to_upper], incoming_queue, outgoing_queue
+        frames_to_send = [TextFrame(text="Hello from Pipecat!")]
+        expected_down_frames = [TextFrame]
+        await run_test(
+            pipeline,
+            frames_to_send=frames_to_send,
+            expected_down_frames=expected_down_frames,
         )
 
-        sentence = "Hello, world. It's me, a pipeline."
-        for c in sentence:
-            await incoming_queue.put(TextFrame(c))
-        await incoming_queue.put(EndFrame())
+    async def test_pipeline_multiple(self):
+        identity1 = IdentityFilter()
+        identity2 = IdentityFilter()
+        identity3 = IdentityFilter()
 
-        await pipeline.run_pipeline()
+        pipeline = Pipeline([identity1, identity2, identity3])
 
-        self.assertEqual(await outgoing_queue.get(), TextFrame("H E L L O ,   W O R L D ."))
-        self.assertEqual(
-            await outgoing_queue.get(),
-            TextFrame("   I T ' S   M E ,   A   P I P E L I N E ."),
-        )
-        # leftover little bit because of the spacing
-        self.assertEqual(
-            await outgoing_queue.get(),
-            TextFrame(" "),
-        )
-        self.assertIsInstance(await outgoing_queue.get(), EndFrame)
-
-
-class TestLogFrame(unittest.TestCase):
-    class MockProcessor(FrameProcessor):
-        def __init__(self, name):
-            self.name = name
-
-        def __str__(self):
-            return self.name
-
-    def setUp(self):
-        self.processor1 = self.MockProcessor("processor1")
-        self.processor2 = self.MockProcessor("processor2")
-        self.pipeline = Pipeline(processors=[self.processor1, self.processor2])
-        self.pipeline._name = "MyClass"
-        self.pipeline._logger = Mock()
-
-    @unittest.skip("FIXME: This test is failing")
-    def test_log_frame_from_source(self):
-        frame = Mock(__class__=Mock(__name__="MyFrame"))
-        self.pipeline._log_frame(frame, depth=1)
-        self.pipeline._logger.debug.assert_called_once_with(
-            "MyClass  source -> MyFrame -> processor1"
+        frames_to_send = [TextFrame(text="Hello from Pipecat!")]
+        expected_down_frames = [TextFrame]
+        await run_test(
+            pipeline,
+            frames_to_send=frames_to_send,
+            expected_down_frames=expected_down_frames,
         )
 
-    @unittest.skip("FIXME: This test is failing")
-    def test_log_frame_to_sink(self):
-        frame = Mock(__class__=Mock(__name__="MyFrame"))
-        self.pipeline._log_frame(frame, depth=3)
-        self.pipeline._logger.debug.assert_called_once_with(
-            "MyClass      processor2 -> MyFrame -> sink"
+    async def test_pipeline_start_metadata(self):
+        pipeline = Pipeline([IdentityFilter()])
+
+        frames_to_send = []
+        expected_down_frames = [StartFrame]
+        (received_down, _) = await run_test(
+            pipeline,
+            frames_to_send=frames_to_send,
+            expected_down_frames=expected_down_frames,
+            ignore_start=False,
+            start_metadata={"foo": "bar"},
+        )
+        assert "foo" in received_down[-1].metadata
+
+
+class TestParallelPipeline(unittest.IsolatedAsyncioTestCase):
+    async def test_parallel_single(self):
+        pipeline = ParallelPipeline([IdentityFilter()])
+
+        frames_to_send = [TextFrame(text="Hello from Pipecat!")]
+        expected_down_frames = [TextFrame]
+        await run_test(
+            pipeline,
+            frames_to_send=frames_to_send,
+            expected_down_frames=expected_down_frames,
         )
 
-    @unittest.skip("FIXME: This test is failing")
-    def test_log_frame_repeated_log(self):
-        frame = Mock(__class__=Mock(__name__="MyFrame"))
-        self.pipeline._log_frame(frame, depth=2)
-        self.pipeline._logger.debug.assert_called_once_with(
-            "MyClass    processor1 -> MyFrame -> processor2"
-        )
-        self.pipeline._log_frame(frame, depth=2)
-        self.pipeline._logger.debug.assert_called_with("MyClass    ... repeated")
+    async def test_parallel_multiple(self):
+        """Should only passthrough one instance of TextFrame."""
+        pipeline = ParallelPipeline([IdentityFilter()], [IdentityFilter()])
 
-    @unittest.skip("FIXME: This test is failing")
-    def test_log_frame_reset_repeated_log(self):
-        frame1 = Mock(__class__=Mock(__name__="MyFrame1"))
-        frame2 = Mock(__class__=Mock(__name__="MyFrame2"))
-        self.pipeline._log_frame(frame1, depth=2)
-        self.pipeline._logger.debug.assert_called_once_with(
-            "MyClass    processor1 -> MyFrame1 -> processor2"
+        frames_to_send = [TextFrame(text="Hello from Pipecat!")]
+        expected_down_frames = [TextFrame]
+        await run_test(
+            pipeline,
+            frames_to_send=frames_to_send,
+            expected_down_frames=expected_down_frames,
         )
-        self.pipeline._log_frame(frame1, depth=2)
-        self.pipeline._logger.debug.assert_called_with("MyClass    ... repeated")
-        self.pipeline._log_frame(frame2, depth=2)
-        self.pipeline._logger.debug.assert_called_with(
-            "MyClass    processor1 -> MyFrame2 -> processor2"
+
+
+class TestPipelineTask(unittest.IsolatedAsyncioTestCase):
+    async def test_task_single(self):
+        pipeline = Pipeline([IdentityFilter()])
+        task = PipelineTask(pipeline)
+        task.set_event_loop(asyncio.get_event_loop())
+
+        await task.queue_frame(TextFrame(text="Hello!"))
+        await task.queue_frames([TextFrame(text="Bye!"), EndFrame()])
+        await task.run()
+        assert task.has_finished()
+
+    async def test_task_observers(self):
+        frame_received = False
+
+        class CustomObserver(BaseObserver):
+            async def on_push_frame(self, data: FramePushed):
+                nonlocal frame_received
+
+                if isinstance(data.frame, TextFrame):
+                    frame_received = True
+
+        identity = IdentityFilter()
+        pipeline = Pipeline([identity])
+        task = PipelineTask(pipeline, observers=[CustomObserver()])
+        task.set_event_loop(asyncio.get_event_loop())
+
+        await task.queue_frames([TextFrame(text="Hello Downstream!"), EndFrame()])
+        await task.run()
+        assert frame_received
+
+    async def test_task_add_observer(self):
+        frame_received = False
+        frame_count_1 = 0
+        frame_count_2 = 0
+
+        class CustomObserver(BaseObserver):
+            async def on_push_frame(self, data: FramePushed):
+                nonlocal frame_received
+
+                if isinstance(data.frame, TextFrame):
+                    frame_received = True
+
+        class CustomAddObserver1(BaseObserver):
+            async def on_push_frame(self, data: FramePushed):
+                nonlocal frame_count_1
+
+                if isinstance(data.source, IdentityFilter) and isinstance(data.frame, TextFrame):
+                    frame_count_1 += 1
+
+        class CustomAddObserver2(BaseObserver):
+            async def on_push_frame(self, data: FramePushed):
+                nonlocal frame_count_2
+
+                if isinstance(data.source, IdentityFilter) and isinstance(data.frame, TextFrame):
+                    frame_count_2 += 1
+
+        identity = IdentityFilter()
+        pipeline = Pipeline([identity])
+        task = PipelineTask(pipeline, observers=[CustomObserver()])
+
+        # Add a new observer right away, before doing anything else with the task.
+        observer1 = CustomAddObserver1()
+        task.add_observer(observer1)
+
+        task.set_event_loop(asyncio.get_event_loop())
+
+        async def delayed_add_observer():
+            observer2 = CustomAddObserver2()
+            # Wait after the pipeline is started and add another observer.
+            await asyncio.sleep(0.1)
+            task.add_observer(observer2)
+            # Push a TextFrame and wait for the observer to pick it up.
+            await task.queue_frame(TextFrame(text="Hello Downstream!"))
+            await asyncio.sleep(0.1)
+            # Remove both observers.
+            await task.remove_observer(observer1)
+            await task.remove_observer(observer2)
+            # Push another TextFrame. This time the counter should not
+            # increments since we have removed the observer.
+            await task.queue_frame(TextFrame(text="Hello Downstream!"))
+            await asyncio.sleep(0.1)
+            # Finally end the pipeline.
+            await task.queue_frame(EndFrame())
+
+        await asyncio.gather(task.run(), delayed_add_observer())
+
+        assert frame_received
+        assert frame_count_1 == 1
+        assert frame_count_2 == 1
+
+    async def test_task_started_ended_event_handler(self):
+        start_received = False
+        end_received = False
+
+        identity = IdentityFilter()
+        pipeline = Pipeline([identity])
+        task = PipelineTask(pipeline)
+        task.set_event_loop(asyncio.get_event_loop())
+
+        @task.event_handler("on_pipeline_started")
+        async def on_pipeline_started(task, frame: StartFrame):
+            nonlocal start_received
+            start_received = True
+
+        @task.event_handler("on_pipeline_ended")
+        async def on_pipeline_ended(task, frame: EndFrame):
+            nonlocal end_received
+            end_received = True
+
+        await task.queue_frame(EndFrame())
+        await task.run()
+
+        assert start_received
+        assert end_received
+
+    async def test_task_stopped_event_handler(self):
+        stop_received = False
+
+        identity = IdentityFilter()
+        pipeline = Pipeline([identity])
+        task = PipelineTask(pipeline)
+        task.set_event_loop(asyncio.get_event_loop())
+
+        @task.event_handler("on_pipeline_stopped")
+        async def on_pipeline_ended(task, frame: StopFrame):
+            nonlocal stop_received
+            stop_received = True
+
+        await task.queue_frame(StopFrame())
+        await task.run()
+
+        assert stop_received
+
+    async def test_task_frame_reached_event_handlers(self):
+        upstream_received = False
+        downstream_received = False
+
+        identity = IdentityFilter()
+        pipeline = Pipeline([identity])
+        task = PipelineTask(pipeline, cancel_on_idle_timeout=False)
+        task.set_event_loop(asyncio.get_event_loop())
+        task.set_reached_upstream_filter((TextFrame,))
+        task.set_reached_downstream_filter((TextFrame,))
+
+        @task.event_handler("on_frame_reached_upstream")
+        async def on_frame_reached_upstream(task, frame):
+            nonlocal upstream_received
+            if isinstance(frame, TextFrame) and frame.text == "Hello Upstream!":
+                upstream_received = True
+
+        @task.event_handler("on_frame_reached_downstream")
+        async def on_frame_reached_downstream(task, frame):
+            nonlocal downstream_received
+            if isinstance(frame, TextFrame) and frame.text == "Hello Downstream!":
+                downstream_received = True
+                await identity.push_frame(
+                    TextFrame(text="Hello Upstream!"), FrameDirection.UPSTREAM
+                )
+
+        await task.queue_frame(TextFrame(text="Hello Downstream!"))
+
+        try:
+            await asyncio.wait_for(asyncio.shield(task.run()), timeout=1.0)
+        except asyncio.TimeoutError:
+            pass
+
+        assert upstream_received
+        assert downstream_received
+
+    async def test_task_heartbeats(self):
+        heartbeats_counter = 0
+
+        async def heartbeat_received(processor: FrameProcessor, heartbeat: HeartbeatFrame):
+            nonlocal heartbeats_counter
+            heartbeats_counter += 1
+
+        identity = IdentityFilter()
+        pipeline = Pipeline([identity])
+        heartbeats_observer = HeartbeatsObserver(
+            target=identity, heartbeat_callback=heartbeat_received
         )
+        task = PipelineTask(
+            pipeline,
+            params=PipelineParams(
+                enable_heartbeats=True,
+                heartbeats_period_secs=0.2,
+            ),
+            observers=[heartbeats_observer],
+            cancel_on_idle_timeout=False,
+        )
+        task.set_event_loop(asyncio.get_event_loop())
+
+        expected_heartbeats = 1.0 / 0.2
+
+        await task.queue_frame(TextFrame(text="Hello!"))
+        try:
+            await asyncio.wait_for(asyncio.shield(task.run()), timeout=1.0)
+        except asyncio.TimeoutError:
+            pass
+        assert heartbeats_counter == expected_heartbeats
+
+    async def test_idle_task(self):
+        identity = IdentityFilter()
+        pipeline = Pipeline([identity])
+        task = PipelineTask(pipeline, idle_timeout_secs=0.2)
+        task.set_event_loop(asyncio.get_event_loop())
+        await task.run()
+        assert True
+
+    async def test_no_idle_task(self):
+        identity = IdentityFilter()
+        pipeline = Pipeline([identity])
+        task = PipelineTask(pipeline, idle_timeout_secs=0.2, cancel_on_idle_timeout=False)
+        task.set_event_loop(asyncio.get_event_loop())
+        try:
+            await asyncio.wait_for(asyncio.shield(task.run()), timeout=0.3)
+        except asyncio.TimeoutError:
+            assert True
+        else:
+            assert False
+
+    async def test_idle_task_heartbeats(self):
+        identity = IdentityFilter()
+        pipeline = Pipeline([identity])
+        task = PipelineTask(
+            pipeline,
+            params=PipelineParams(
+                enable_heartbeats=True,
+                heartbeats_period_secs=0.1,
+            ),
+            idle_timeout_secs=0.3,
+        )
+        task.set_event_loop(asyncio.get_event_loop())
+        await task.run()
+        assert True
+
+    async def test_idle_task_event_handler(self):
+        identity = IdentityFilter()
+        pipeline = Pipeline([identity])
+        task = PipelineTask(pipeline, idle_timeout_secs=0.2, cancel_on_idle_timeout=False)
+        task.set_event_loop(asyncio.get_event_loop())
+
+        idle_timeout = False
+
+        @task.event_handler("on_idle_timeout")
+        async def on_idle_timeout(task: PipelineTask):
+            nonlocal idle_timeout
+            idle_timeout = True
+            await task.cancel()
+
+        await task.run()
+        assert True
+
+    async def test_idle_task_frames(self):
+        idle_timeout_secs = 0.2
+        sleep_time_secs = idle_timeout_secs / 2
+
+        identity = IdentityFilter()
+        pipeline = Pipeline([identity])
+        task = PipelineTask(
+            pipeline,
+            idle_timeout_secs=idle_timeout_secs,
+            idle_timeout_frames=(TextFrame,),
+        )
+        task.set_event_loop(asyncio.get_event_loop())
+
+        async def delayed_frames():
+            await asyncio.sleep(sleep_time_secs)
+            await task.queue_frame(TextFrame("Hello Pipecat!"))
+            await asyncio.sleep(sleep_time_secs)
+            await task.queue_frame(TextFrame("Hello Pipecat!"))
+            await asyncio.sleep(sleep_time_secs)
+            await task.queue_frame(TextFrame("Hello Pipecat!"))
+
+        start_time = time.time()
+
+        tasks = {asyncio.create_task(task.run()), asyncio.create_task(delayed_frames())}
+
+        await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+
+        diff_time = time.time() - start_time
+
+        self.assertGreater(diff_time, sleep_time_secs * 3)

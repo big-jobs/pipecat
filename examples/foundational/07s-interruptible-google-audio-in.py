@@ -1,46 +1,43 @@
 #
-# Copyright (c) 2024, Daily
+# Copyright (c) 2024–2025, Daily
 #
 # SPDX-License-Identifier: BSD 2-Clause License
 #
 
-import aiohttp
-import asyncio
+import argparse
 import os
-import sys
+from dataclasses import dataclass
 
 import google.ai.generativelanguage as glm
-
-from dataclasses import dataclass
 from dotenv import load_dotenv
 from loguru import logger
-from runner import configure
 
 from pipecat.audio.vad.silero import SileroVADAnalyzer
-from pipecat.pipeline.pipeline import Pipeline
-from pipecat.pipeline.runner import PipelineRunner
-from pipecat.pipeline.task import PipelineParams, PipelineTask
-from pipecat.processors.aggregators.openai_llm_context import OpenAILLMContext
-from pipecat.services.cartesia import CartesiaTTSService
-from pipecat.services.google import GoogleLLMService
-from pipecat.processors.frame_processor import FrameProcessor
-from pipecat.transports.services.daily import DailyParams, DailyTransport
 from pipecat.frames.frames import (
-    LLMFullResponseStartFrame,
-    LLMFullResponseEndFrame,
-    InputAudioRawFrame,
     Frame,
+    InputAudioRawFrame,
+    LLMFullResponseEndFrame,
+    LLMFullResponseStartFrame,
     StartInterruptionFrame,
     TextFrame,
     TranscriptionFrame,
     UserStartedSpeakingFrame,
     UserStoppedSpeakingFrame,
 )
+from pipecat.pipeline.pipeline import Pipeline
+from pipecat.pipeline.runner import PipelineRunner
+from pipecat.pipeline.task import PipelineParams, PipelineTask
+from pipecat.processors.aggregators.openai_llm_context import OpenAILLMContext
+from pipecat.processors.frame_processor import FrameProcessor
+from pipecat.services.google.llm import GoogleLLMService
+from pipecat.services.google.tts import GoogleTTSService
+from pipecat.transcriptions.language import Language
+from pipecat.transports.base_transport import BaseTransport, TransportParams
+from pipecat.transports.network.fastapi_websocket import FastAPIWebsocketParams
+from pipecat.transports.services.daily import DailyParams
 
 load_dotenv(override=True)
 
-logger.remove(0)
-logger.add(sys.stderr, level="DEBUG")
 
 marker = "|----|"
 system_message = f"""
@@ -194,85 +191,97 @@ class TanscriptionContextFixup(FrameProcessor):
         await self.push_frame(frame, direction)
 
 
-async def main():
-    async with aiohttp.ClientSession() as session:
-        (room_url, token) = await configure(session)
+# We store functions so objects (e.g. SileroVADAnalyzer) don't get
+# instantiated. The function will be called when the desired transport gets
+# selected.
+transport_params = {
+    "daily": lambda: DailyParams(
+        audio_in_enabled=True,
+        audio_out_enabled=True,
+        vad_analyzer=SileroVADAnalyzer(),
+    ),
+    "twilio": lambda: FastAPIWebsocketParams(
+        audio_in_enabled=True,
+        audio_out_enabled=True,
+        vad_analyzer=SileroVADAnalyzer(),
+    ),
+    "webrtc": lambda: TransportParams(
+        audio_in_enabled=True,
+        audio_out_enabled=True,
+        vad_analyzer=SileroVADAnalyzer(),
+    ),
+}
 
-        transport = DailyTransport(
-            room_url,
-            token,
-            "Respond bot",
-            DailyParams(
-                audio_out_enabled=True,
-                # No transcription at all. just audio input to Gemini!
-                # transcription_enabled=True,
-                vad_enabled=True,
-                vad_analyzer=SileroVADAnalyzer(),
-                vad_audio_passthrough=True,
-            ),
-        )
 
-        tts = CartesiaTTSService(
-            api_key=os.getenv("CARTESIA_API_KEY"),
-            voice_id="79a125e8-cd45-4c13-8a67-188112f4dd22",  # British Lady
-        )
+async def run_example(transport: BaseTransport, _: argparse.Namespace, handle_sigint: bool):
+    logger.info(f"Starting bot")
 
-        llm = GoogleLLMService(
-            model="gemini-1.5-flash-latest",
-            # model="gemini-exp-1114",
-            api_key=os.getenv("GOOGLE_API_KEY"),
-        )
+    llm = GoogleLLMService(api_key=os.getenv("GOOGLE_API_KEY"), model="gemini-2.0-flash-001")
 
-        messages = [
-            {
-                "role": "system",
-                "content": system_message,
-            },
-            {
-                "role": "user",
-                "content": "Start by saying hello.",
-            },
+    tts = GoogleTTSService(
+        voice_id="en-US-Chirp3-HD-Charon",
+        params=GoogleTTSService.InputParams(language=Language.EN_US),
+        credentials=os.getenv("GOOGLE_TEST_CREDENTIALS"),
+    )
+
+    messages = [
+        {
+            "role": "system",
+            "content": system_message,
+        },
+        {
+            "role": "user",
+            "content": "Start by saying hello.",
+        },
+    ]
+
+    context = OpenAILLMContext(messages)
+    context_aggregator = llm.create_context_aggregator(context)
+    audio_collector = UserAudioCollector(context, context_aggregator.user())
+    pull_transcript_out_of_llm_output = TranscriptExtractor(context)
+    fixup_context_messages = TanscriptionContextFixup(context)
+
+    pipeline = Pipeline(
+        [
+            transport.input(),  # Transport user input
+            audio_collector,
+            context_aggregator.user(),  # User responses
+            llm,  # LLM
+            pull_transcript_out_of_llm_output,
+            tts,  # TTS
+            transport.output(),  # Transport bot output
+            context_aggregator.assistant(),  # Assistant spoken responses
+            fixup_context_messages,
         ]
+    )
 
-        context = OpenAILLMContext(messages)
-        context_aggregator = llm.create_context_aggregator(context)
-        audio_collector = UserAudioCollector(context, context_aggregator.user())
-        pull_transcript_out_of_llm_output = TranscriptExtractor(context)
-        fixup_context_messages = TanscriptionContextFixup(context)
+    task = PipelineTask(
+        pipeline,
+        params=PipelineParams(
+            allow_interruptions=True,
+            enable_metrics=True,
+            enable_usage_metrics=True,
+        ),
+    )
 
-        pipeline = Pipeline(
-            [
-                transport.input(),  # Transport user input
-                audio_collector,
-                context_aggregator.user(),  # User responses
-                llm,  # LLM
-                pull_transcript_out_of_llm_output,
-                tts,  # TTS
-                transport.output(),  # Transport bot output
-                context_aggregator.assistant(),  # Assistant spoken responses
-                fixup_context_messages,
-            ]
-        )
+    @transport.event_handler("on_client_connected")
+    async def on_client_connected(transport, client):
+        logger.info(f"Client connected")
+        # Kick off the conversation.
+        messages.append({"role": "system", "content": "Please introduce yourself to the user."})
+        await task.queue_frames([context_aggregator.user().get_context_frame()])
 
-        task = PipelineTask(
-            pipeline,
-            PipelineParams(
-                allow_interruptions=True,
-                enable_metrics=True,
-                enable_usage_metrics=True,
-            ),
-        )
+    @transport.event_handler("on_client_disconnected")
+    async def on_client_disconnected(transport, client):
+        logger.info(f"Client disconnected")
+        await task.cancel()
 
-        @transport.event_handler("on_first_participant_joined")
-        async def on_first_participant_joined(transport, participant):
-            await transport.capture_participant_transcription(participant["id"])
-            # Kick off the conversation.
-            await task.queue_frames([context_aggregator.user().get_context_frame()])
+    runner = PipelineRunner(handle_sigint=handle_sigint)
 
-        runner = PipelineRunner()
-
-        await runner.run(task)
+    await runner.run(task)
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    from pipecat.examples.run import main
+
+    main(run_example, transport_params=transport_params)

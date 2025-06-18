@@ -2,9 +2,20 @@
 
 <img src="image.png" width="420px">
 
-This repository demonstrates a simple AI chatbot with real-time audio/video interaction, implemented in three different ways. The bot server remains the same, but you can connect to it using three different client approaches.
+This repository demonstrates a simple AI chatbot with real-time audio/video interaction, implemented using different client and server options. The bot server supports multiple AI backends, and you can connect to it using five different client approaches.
 
-## Three Ways to Connect
+## Two Bot Options
+
+1. **OpenAI Bot** (Default)
+
+   - Uses gpt-4o for conversation
+   - Requires OpenAI API key
+
+2. **Gemini Bot**
+   - Uses Google's Gemini Multimodal Live model
+   - Requires Gemini API key
+
+## Five Client Options
 
 1. **Daily Prebuilt** (Simplest)
 
@@ -13,13 +24,23 @@ This repository demonstrates a simple AI chatbot with real-time audio/video inte
 
 2. **JavaScript**
 
-   - Basic implementation using RTVI JavaScript SDK
+   - Basic implementation using [Pipecat JavaScript SDK](https://docs.pipecat.ai/client/js/introduction)
    - No framework dependencies
    - Good for learning the fundamentals
 
 3. **React**
-   - Basic impelmentation using RTVI React SDK
-   - Demonstrates the basic client principles with RTVI React
+
+   - Basic impelmentation using [Pipecat React SDK](https://docs.pipecat.ai/client/react/introduction)
+   - Demonstrates the basic client principles with Pipecat React
+
+4. **Android**
+
+   - Basic implementation using [Pipecat Android SDK](https://docs.pipecat.ai/client/android/introduction)
+   - Demonstrates the basic client principles with Pipecat Android
+
+5. **iOS**
+   - Basic implementation using [Pipecat iOS SDK](https://docs.pipecat.ai/client/ios/introduction)
+   - Demonstrates the basic client principles with Pipecat iOS
 
 ## Quick Start
 
@@ -38,8 +59,12 @@ This repository demonstrates a simple AI chatbot with real-time audio/video inte
    ```bash
    pip install -r requirements.txt
    ```
-4. Copy env.example to .env and add your credentials
-
+4. Copy env.example to .env and configure:
+   - Add your API keys
+   - Choose your bot implementation:
+     ```ini
+     BOT_IMPLEMENTATION=      # Options: 'openai' (default) or 'gemini'
+     ```
 5. Start the server:
    ```bash
    python server.py
@@ -47,9 +72,11 @@ This repository demonstrates a simple AI chatbot with real-time audio/video inte
 
 ### Next, connect using your preferred client app:
 
-- [Daily Prebuilt](examples/prebuilt/README.md)
-- [Vanilla JavaScript Guide](examples/javascript/README.md)
-- [React Guide](examples/react/README.md)
+- [Android Guide](client/android/README.md)
+- [iOS Guide](client/ios/README.md)
+- [Daily Prebuilt](client/prebuilt/README.md)
+- [JavaScript Guide](client/javascript/README.md)
+- [React Guide](client/react/README.md)
 
 ## Important Note
 
@@ -60,21 +87,25 @@ The bot server must be running for any of the client implementations to work. St
 - Python 3.10+
 - Node.js 16+ (for JavaScript and React implementations)
 - Daily API key
-- OpenAI API key
-- Cartesia API key
+- OpenAI API key (for OpenAI bot)
+- Gemini API key (for Gemini bot)
+- ElevenLabs API key
 - Modern web browser with WebRTC support
 
 ## Project Structure
 
 ```
-simple-chatbot-full-stack/
-├── server/             # Bot server implementation
-│   ├── bot.py          # Bot logic and media handling
-│   ├── runner.py       # Server runner utilities
-│   ├── server.py       # FastAPI server
+simple-chatbot/
+├── server/              # Bot server implementation
+│   ├── bot-openai.py    # OpenAI bot implementation
+│   ├── bot-gemini.py    # Gemini bot implementation
+│   ├── runner.py        # Server runner utilities
+│   ├── server.py        # FastAPI server
 │   └── requirements.txt
-└── examples/           # Client implementations
-    ├── prebuilt/       # Daily Prebuilt connection
-    ├── javascript/     # JavaScript RTVI client
-    └── react/          # React RTVI client
+└── client/              # Client implementations
+    ├── android/         # Daily Android connection
+    ├── ios/             # Daily iOS connection
+    ├── javascript/      # Daily JavaScript connection
+    ├── prebuilt/        # Pipecat Prebuilt client
+    └── react/           # Pipecat React client
 ```

@@ -1,23 +1,25 @@
 #
-# Copyright (c) 2024, Daily
+# Copyright (c) 2024–2025, Daily
 #
 # SPDX-License-Identifier: BSD 2-Clause License
 #
 
-import aiohttp
 import asyncio
 import os
 import sys
-
 import tkinter as tk
+
+import aiohttp
+from dotenv import load_dotenv
+from loguru import logger
 
 from pipecat.frames.frames import (
     Frame,
+    LLMMessagesFrame,
     OutputAudioRawFrame,
+    TextFrame,
     TTSAudioRawFrame,
     URLImageRawFrame,
-    LLMMessagesFrame,
-    TextFrame,
 )
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
@@ -25,15 +27,10 @@ from pipecat.pipeline.sync_parallel_pipeline import SyncParallelPipeline
 from pipecat.pipeline.task import PipelineTask
 from pipecat.processors.aggregators.sentence import SentenceAggregator
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
-from pipecat.services.cartesia import CartesiaHttpTTSService
-from pipecat.services.openai import OpenAILLMService
-from pipecat.services.fal import FalImageGenService
-from pipecat.transports.base_transport import TransportParams
-from pipecat.transports.local.tk import TkLocalTransport, TkOutputTransport
-
-from loguru import logger
-
-from dotenv import load_dotenv
+from pipecat.services.cartesia.tts import CartesiaHttpTTSService
+from pipecat.services.fal.image import FalImageGenService
+from pipecat.services.openai.llm import OpenAILLMService
+from pipecat.transports.local.tk import TkLocalTransport, TkTransportParams
 
 load_dotenv(override=True)
 
@@ -96,11 +93,11 @@ async def main():
                         self.frame = frame
                     await self.push_frame(frame, direction)
 
-            llm = OpenAILLMService(api_key=os.getenv("OPENAI_API_KEY"), model="gpt-4o")
+            llm = OpenAILLMService(api_key=os.getenv("OPENAI_API_KEY"))
 
             tts = CartesiaHttpTTSService(
                 api_key=os.getenv("CARTESIA_API_KEY"),
-                voice_id="79a125e8-cd45-4c13-8a67-188112f4dd22",  # British Lady
+                voice_id="71a7ad14-091c-4e8e-a314-022ece01c121",  # British Reading Lady
             )
 
             imagegen = FalImageGenService(
@@ -154,11 +151,11 @@ async def main():
 
         transport = TkLocalTransport(
             tk_root,
-            TransportParams(
+            TkTransportParams(
                 audio_out_enabled=True,
-                camera_out_enabled=True,
-                camera_out_width=1024,
-                camera_out_height=1024,
+                video_out_enabled=True,
+                video_out_width=1024,
+                video_out_height=1024,
             ),
         )
 

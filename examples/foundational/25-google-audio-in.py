@@ -1,50 +1,44 @@
 #
-# Copyright (c) 2024, Daily
+# Copyright (c) 2024–2025, Daily
 #
 # SPDX-License-Identifier: BSD 2-Clause License
 #
 
-import aiohttp
-import asyncio
+import argparse
 import os
-import sys
+from dataclasses import dataclass
 
 import google.ai.generativelanguage as glm
-
-from dataclasses import dataclass
 from dotenv import load_dotenv
 from loguru import logger
-from runner import configure
 
 from pipecat.audio.vad.silero import SileroVADAnalyzer
-from pipecat.pipeline.pipeline import Pipeline
-from pipecat.pipeline.parallel_pipeline import ParallelPipeline
-from pipecat.pipeline.runner import PipelineRunner
-from pipecat.pipeline.task import PipelineParams, PipelineTask
-from pipecat.processors.aggregators.openai_llm_context import (
-    OpenAILLMContext,
-    OpenAILLMContextFrame,
-)
-from pipecat.services.cartesia import CartesiaTTSService
-from pipecat.services.google import GoogleLLMService, GoogleLLMContext
-from pipecat.processors.frame_processor import FrameProcessor
-from pipecat.transports.services.daily import DailyParams, DailyTransport
 from pipecat.frames.frames import (
     Frame,
     InputAudioRawFrame,
     LLMFullResponseEndFrame,
-    MetricsFrame,
     SystemFrame,
     TextFrame,
     TranscriptionFrame,
     UserStartedSpeakingFrame,
     UserStoppedSpeakingFrame,
 )
+from pipecat.pipeline.parallel_pipeline import ParallelPipeline
+from pipecat.pipeline.pipeline import Pipeline
+from pipecat.pipeline.runner import PipelineRunner
+from pipecat.pipeline.task import PipelineParams, PipelineTask
+from pipecat.processors.aggregators.openai_llm_context import (
+    OpenAILLMContext,
+    OpenAILLMContextFrame,
+)
+from pipecat.processors.frame_processor import FrameProcessor
+from pipecat.services.cartesia.tts import CartesiaTTSService
+from pipecat.services.google.llm import GoogleLLMContext, GoogleLLMService
+from pipecat.transports.base_transport import BaseTransport, TransportParams
+from pipecat.transports.network.fastapi_websocket import FastAPIWebsocketParams
+from pipecat.transports.services.daily import DailyParams
 
 load_dotenv(override=True)
-
-logger.remove(0)
-logger.add(sys.stderr, level="DEBUG")
 
 #
 # The system prompt for the main conversation.
@@ -81,8 +75,7 @@ Rules:
 
 
 class UserAudioCollector(FrameProcessor):
-    """
-    This FrameProcessor collects audio frames in a buffer, then adds them to the
+    """This FrameProcessor collects audio frames in a buffer, then adds them to the
     LLM context when the user stops speaking.
     """
 
@@ -126,8 +119,7 @@ class UserAudioCollector(FrameProcessor):
 
 
 class InputTranscriptionContextFilter(FrameProcessor):
-    """
-    This FrameProcessor blocks all frames except the OpenAILLMContextFrame that triggers
+    """This FrameProcessor blocks all frames except the OpenAILLMContextFrame that triggers
     LLM inference. (And system frames, which are needed for the pipeline element lifecycle.)
 
     We take the context object out of the OpenAILLMContextFrame and use it to create a new
@@ -146,7 +138,14 @@ class InputTranscriptionContextFilter(FrameProcessor):
             return
 
         try:
-            message = frame.context.messages[-1]
+            # Make sure we're working with a GoogleLLMContext
+            context = GoogleLLMContext.upgrade_to_google(frame.context)
+            message = context.messages[-1]
+
+            if not isinstance(message, glm.Content):
+                logger.error(f"Expected glm.Content, got {type(message)}")
+                return
+
             last_part = message.parts[-1]
             if not (
                 message.role == "user"
@@ -187,8 +186,7 @@ class InputTranscriptionContextFilter(FrameProcessor):
 
 @dataclass
 class LLMDemoTranscriptionFrame(Frame):
-    """
-    It would be nice if we could just use a TranscriptionFrame to send our transcriber
+    """It would be nice if we could just use a TranscriptionFrame to send our transcriber
     LLM's transcription output down the pipelline. But we can't, because TranscriptionFrame
     is a child class of TextFrame, which in our pipeline will be interpreted by the TTS
     service as text that should be turned into speech. We could restructure this pipeline,
@@ -200,8 +198,7 @@ class LLMDemoTranscriptionFrame(Frame):
 
 
 class InputTranscriptionFrameEmitter(FrameProcessor):
-    """
-    A simple FrameProcessor that aggregates the TextFrame output from the transcriber LLM
+    """A simple FrameProcessor that aggregates the TextFrame output from the transcriber LLM
     and then sends the full response down the pipeline as an LLMDemoTranscriptionFrame.
     """
 
@@ -217,13 +214,12 @@ class InputTranscriptionFrameEmitter(FrameProcessor):
         elif isinstance(frame, LLMFullResponseEndFrame):
             await self.push_frame(LLMDemoTranscriptionFrame(text=self._aggregation.strip()))
             self._aggregation = ""
-        elif isinstance(frame, MetricsFrame):
+        else:
             await self.push_frame(frame, direction)
 
 
 class TranscriptionContextFixup(FrameProcessor):
-    """
-    This FrameProcessor looks for the LLMDemoTranscriptionFrame and swaps out the
+    """This FrameProcessor looks for the LLMDemoTranscriptionFrame and swaps out the
     audio part of the most recent user message with the text transcription.
 
     Audio is big, using a lot of tokens and network bandwidth. So doing this is
@@ -273,102 +269,117 @@ class TranscriptionContextFixup(FrameProcessor):
         await self.push_frame(frame, direction)
 
 
-async def main():
-    async with aiohttp.ClientSession() as session:
-        (room_url, token) = await configure(session)
+# We store functions so objects (e.g. SileroVADAnalyzer) don't get
+# instantiated. The function will be called when the desired transport gets
+# selected.
+transport_params = {
+    "daily": lambda: DailyParams(
+        audio_in_enabled=True,
+        audio_out_enabled=True,
+        vad_analyzer=SileroVADAnalyzer(),
+    ),
+    "twilio": lambda: FastAPIWebsocketParams(
+        audio_in_enabled=True,
+        audio_out_enabled=True,
+        vad_analyzer=SileroVADAnalyzer(),
+    ),
+    "webrtc": lambda: TransportParams(
+        audio_in_enabled=True,
+        audio_out_enabled=True,
+        vad_analyzer=SileroVADAnalyzer(),
+    ),
+}
 
-        transport = DailyTransport(
-            room_url,
-            token,
-            "Respond bot",
-            DailyParams(
-                audio_out_enabled=True,
-                # No transcription at all. just audio input to Gemini!
-                # transcription_enabled=True,
-                vad_enabled=True,
-                vad_analyzer=SileroVADAnalyzer(),
-                vad_audio_passthrough=True,
+
+async def run_example(transport: BaseTransport, _: argparse.Namespace, handle_sigint: bool):
+    logger.info(f"Starting bot")
+
+    tts = CartesiaTTSService(
+        api_key=os.getenv("CARTESIA_API_KEY"),
+        voice_id="71a7ad14-091c-4e8e-a314-022ece01c121",  # British Reading Lady
+    )
+
+    conversation_llm = GoogleLLMService(
+        name="Conversation",
+        model="gemini-2.0-flash-001",
+        # model="gemini-exp-1121",
+        api_key=os.getenv("GOOGLE_API_KEY"),
+        # we can give the GoogleLLMService a system instruction to use directly
+        # in the GenerativeModel constructor. Let's do that rather than put
+        # our system message in the messages list.
+        system_instruction=conversation_system_message,
+    )
+
+    input_transcription_llm = GoogleLLMService(
+        name="Transcription",
+        model="gemini-2.0-flash-001",
+        # model="gemini-exp-1121",
+        api_key=os.getenv("GOOGLE_API_KEY"),
+        system_instruction=transcriber_system_message,
+    )
+
+    messages = [
+        {
+            "role": "user",
+            "content": "Start by saying hello.",
+        },
+    ]
+
+    context = OpenAILLMContext(messages)
+    context_aggregator = conversation_llm.create_context_aggregator(context)
+    audio_collector = UserAudioCollector(context, context_aggregator.user())
+    input_transcription_context_filter = InputTranscriptionContextFilter()
+    transcription_frames_emitter = InputTranscriptionFrameEmitter()
+    fixup_context_messages = TranscriptionContextFixup(context)
+
+    pipeline = Pipeline(
+        [
+            transport.input(),
+            audio_collector,
+            context_aggregator.user(),
+            ParallelPipeline(
+                [  # transcribe
+                    input_transcription_context_filter,
+                    input_transcription_llm,
+                    transcription_frames_emitter,
+                ],
+                [  # conversation inference
+                    conversation_llm,
+                ],
             ),
-        )
-
-        tts = CartesiaTTSService(
-            api_key=os.getenv("CARTESIA_API_KEY"),
-            voice_id="79a125e8-cd45-4c13-8a67-188112f4dd22",  # British Lady
-        )
-
-        conversation_llm = GoogleLLMService(
-            name="Conversation",
-            model="gemini-1.5-flash-latest",
-            # model="gemini-exp-1121",
-            api_key=os.getenv("GOOGLE_API_KEY"),
-            # we can give the GoogleLLMService a system instruction to use directly
-            # in the GenerativeModel constructor. Let's do that rather than put
-            # our system message in the messages list.
-            system_instruction=conversation_system_message,
-        )
-
-        input_transcription_llm = GoogleLLMService(
-            name="Transcription",
-            model="gemini-1.5-flash-latest",
-            # model="gemini-exp-1121",
-            api_key=os.getenv("GOOGLE_API_KEY"),
-            system_instruction=transcriber_system_message,
-        )
-
-        messages = [
-            {
-                "role": "user",
-                "content": "Start by saying hello.",
-            },
+            tts,
+            transport.output(),
+            context_aggregator.assistant(),
+            fixup_context_messages,
         ]
+    )
 
-        context = OpenAILLMContext(messages)
-        context_aggregator = conversation_llm.create_context_aggregator(context)
-        audio_collector = UserAudioCollector(context, context_aggregator.user())
-        input_transcription_context_filter = InputTranscriptionContextFilter()
-        transcription_frames_emitter = InputTranscriptionFrameEmitter()
-        fixup_context_messages = TranscriptionContextFixup(context)
+    task = PipelineTask(
+        pipeline,
+        params=PipelineParams(
+            allow_interruptions=True,
+            enable_metrics=True,
+            enable_usage_metrics=True,
+        ),
+    )
 
-        pipeline = Pipeline(
-            [
-                transport.input(),
-                audio_collector,
-                context_aggregator.user(),
-                ParallelPipeline(
-                    [  # transcribe
-                        input_transcription_context_filter,
-                        input_transcription_llm,
-                        transcription_frames_emitter,
-                    ],
-                    [  # conversation inference
-                        conversation_llm,
-                    ],
-                ),
-                tts,
-                transport.output(),
-                context_aggregator.assistant(),
-                fixup_context_messages,
-            ]
-        )
+    @transport.event_handler("on_client_connected")
+    async def on_client_connected(transport, client):
+        logger.info(f"Client connected")
+        # Kick off the conversation.
+        await task.queue_frames([context_aggregator.user().get_context_frame()])
 
-        task = PipelineTask(
-            pipeline,
-            PipelineParams(
-                allow_interruptions=True,
-                enable_metrics=True,
-                enable_usage_metrics=True,
-            ),
-        )
+    @transport.event_handler("on_client_disconnected")
+    async def on_client_disconnected(transport, client):
+        logger.info(f"Client disconnected")
+        await task.cancel()
 
-        @transport.event_handler("on_first_participant_joined")
-        async def on_first_participant_joined(transport, participant):
-            # Kick off the conversation.
-            await task.queue_frames([context_aggregator.user().get_context_frame()])
+    runner = PipelineRunner(handle_sigint=handle_sigint)
 
-        runner = PipelineRunner()
-
-        await runner.run(task)
+    await runner.run(task)
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    from pipecat.examples.run import main
+
+    main(run_example, transport_params=transport_params)
