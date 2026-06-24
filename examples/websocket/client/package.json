@@ -21,6 +21,6 @@
   "dependencies": {
     "@pipecat-ai/client-js": "^1.0.0",
     "@pipecat-ai/websocket-transport": "^1.0.0",
-    "protobufjs": "^7.4.0"
+    "protobufjs": "^8.6.5"
   }
 }
